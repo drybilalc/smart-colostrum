@@ -228,8 +228,39 @@
       text-align: center;
     }
 
-    /* ── footer ── */
-    footer {
+    #newBtn {
+      width: 100%;
+      padding: 16px;
+      background: transparent;
+      color: var(--gold);
+      border: 2px solid var(--gold);
+      border-radius: var(--radius);
+      font-family: 'Syne', sans-serif;
+      font-size: 16px; font-weight: 700;
+      letter-spacing: .03em;
+      cursor: pointer;
+      transition: background .2s, color .2s;
+    }
+    #newBtn:hover { background: rgba(232,169,69,.12); }
+
+    /* locked result glow */
+    .top-prediction.locked {
+      box-shadow: 0 0 0 2px var(--gold), 0 0 24px rgba(232,169,69,.25);
+    }
+
+    /* progress ring in status */
+    .progress-bar {
+      width: 100%; height: 4px;
+      background: rgba(255,255,255,.1);
+      border-radius: 999px; overflow: hidden;
+      margin-top: 6px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--teal), var(--gold));
+      border-radius: 999px;
+      transition: width .1s linear;
+    }
       margin-top: 8px;
       font-size: 11px; color: rgba(255,255,255,.2);
       text-align: center; letter-spacing: .06em;
@@ -240,9 +271,9 @@
 <div class="container">
 
   <header>
-    <div class="badge">AI · Gerçek Zamanlı Analiz</div>
+    <div class="badge">Yapay Zeka Kolostrum Analizi</div>
     <h1>SMART<br><span>COLOSTRUM</span> 🥛</h1>
-    <p>Kamerayı kolostrum tüpüne tutunuz.<br>Karanlık ortamlardan kaçının.<br>Yapay zeka gerçek zamanlı kalite tahmini yapar.</p>
+    <p>Kamerayı kolostrum tüpüne tutun.<br>Yapay zeka gerçek zamanlı kalite tahmini yapar.</p>
   </header>
 
   <!-- Camera -->
@@ -252,7 +283,7 @@
       <div class="scan-line" id="scanLine"></div>
       <div class="placeholder-msg" id="placeholder">
         <span class="icon">📷</span>
-        Ölçüm yapmak için<br>aşağıdaki butona basın
+        Kamerayı başlatmak için<br>aşağıdaki butona basın
       </div>
     </div>
   </div>
@@ -272,8 +303,13 @@
   </div>
 
   <div id="status">Model yükleniyor…</div>
+  <div class="progress-bar" id="progressBar" style="display:none">
+    <div class="progress-fill" id="progressFill" style="width:0%"></div>
+  </div>
 
-  <footer>SMART COLOSTRUM · developed by Yusuf Bilal ÇETİNKAYA</footer>
+  <button id="newBtn" onclick="newSample()" style="display:none">🔄 Yeni Numune Analiz Et</button>
+
+  <footer>SMART COLOSTRUM · dev. by Yusuf Bilal CETINKAYA</footer>
 </div>
 
 <script>
@@ -285,15 +321,24 @@
   const MODEL_URL = "https://teachablemachine.withgoogle.com/models/S4apDiyjp/";
   // ════════════════════════════════════════════════
 
+  const ANALYSIS_MS = 5000;   // 5 saniye topla → kilitle
   let model, webcam, rafId;
-  const statusEl       = document.getElementById("status");
-  const resultsEl      = document.getElementById("results");
-  const barsContainer  = document.getElementById("barsContainer");
-  const topLabelEl     = document.getElementById("topLabel");
-  const topConfEl      = document.getElementById("topConf");
-  const scanLine       = document.getElementById("scanLine");
-  const placeholder    = document.getElementById("placeholder");
-  const startBtn       = document.getElementById("startBtn");
+  let buffer = {}, bufferCount = 0;
+  let analysisStart = null;
+  let locked = false;
+
+  const statusEl      = document.getElementById("status");
+  const progressBar   = document.getElementById("progressBar");
+  const progressFill  = document.getElementById("progressFill");
+  const resultsEl     = document.getElementById("results");
+  const barsContainer = document.getElementById("barsContainer");
+  const topLabelEl    = document.getElementById("topLabel");
+  const topConfEl     = document.getElementById("topConf");
+  const topCard       = document.querySelector(".top-prediction");
+  const scanLine      = document.getElementById("scanLine");
+  const placeholder   = document.getElementById("placeholder");
+  const startBtn      = document.getElementById("startBtn");
+  const newBtn        = document.getElementById("newBtn");
 
   async function init() {
     startBtn.disabled = true;
@@ -301,31 +346,27 @@
     statusEl.textContent = "Model indiriliyor…";
 
     try {
-      const modelURL   = MODEL_URL + "model.json";
-      const metaURL    = MODEL_URL + "metadata.json";
+      const modelURL = MODEL_URL + "model.json";
+      const metaURL  = MODEL_URL + "metadata.json";
       model = await tmImage.load(modelURL, metaURL);
 
       statusEl.textContent = "Kamera açılıyor…";
-      const flip = false;
-      webcam = new tmImage.Webcam(400, 300, flip);
+      webcam = new tmImage.Webcam(400, 300, false);
       await webcam.setup({ facingMode: "environment" });
       await webcam.play();
 
-      // mount canvas
       placeholder.style.display = "none";
       document.getElementById("webcam-container").appendChild(webcam.canvas);
-      scanLine.style.display = "block";
 
-      // build bar rows
-      const labels = model.getClassLabels();
+      // Build bar rows
       barsContainer.innerHTML = "";
-      labels.forEach(label => {
+      model.getClassLabels().forEach(label => {
         const row = document.createElement("div");
         row.className = "bar-row";
         row.innerHTML = `
           <div class="bar-meta">
             <span class="bar-label">${label}</span>
-            <span class="bar-pct" id="pct-${sanitize(label)}">0%</span>
+            <span class="bar-pct" id="pct-${sanitize(label)}">—</span>
           </div>
           <div class="bar-track">
             <div class="bar-fill" id="fill-${sanitize(label)}" style="width:0%"></div>
@@ -335,8 +376,8 @@
 
       resultsEl.style.display = "flex";
       startBtn.style.display  = "none";
-      statusEl.textContent    = "🟢 Canlı analiz aktif";
 
+      startAnalysis();
       loop();
 
     } catch(err) {
@@ -347,68 +388,84 @@
     }
   }
 
-  const INTERVAL_MS = 2500;
-  let buffer = {};
-  let bufferCount = 0;
-  let lastUpdate = 0;
-  let countdownTimer = null;
+  function startAnalysis() {
+    locked        = false;
+    buffer        = {};
+    bufferCount   = 0;
+    analysisStart = Date.now();
+    topCard.classList.remove("locked");
+    topLabelEl.textContent = "…";
+    topConfEl.textContent  = "—";
+    model.getClassLabels().forEach(label => {
+      const key = sanitize(label);
+      const p = document.getElementById("pct-"  + key);
+      const f = document.getElementById("fill-" + key);
+      if (p) p.textContent  = "—";
+      if (f) f.style.width  = "0%";
+    });
+    scanLine.style.display   = "block";
+    progressBar.style.display = "block";
+    newBtn.style.display      = "none";
+    statusEl.textContent      = "🔍 Numune analiz ediliyor…";
+  }
+
+  function newSample() { startAnalysis(); }
 
   async function loop() {
     webcam.update();
 
-    const preds = await model.predict(webcam.canvas);
-    preds.forEach(p => {
-      buffer[p.className] = (buffer[p.className] || 0) + p.probability;
-    });
-    bufferCount++;
-
-    const now = Date.now();
-    if (now - lastUpdate >= INTERVAL_MS && bufferCount > 0) {
-      lastUpdate = now;
-
-      const averaged = Object.entries(buffer).map(([className, total]) => ({
-        className, probability: total / bufferCount
-      }));
-      averaged.sort((a, b) => b.probability - a.probability);
-
-      const best = averaged[0];
-      topLabelEl.textContent = best.className;
-      topConfEl.textContent  = Math.round(best.probability * 100);
-
-      averaged.forEach(p => {
-        const pct    = Math.round(p.probability * 100);
-        const key    = sanitize(p.className);
-        const pctEl  = document.getElementById("pct-"  + key);
-        const fillEl = document.getElementById("fill-" + key);
-        if (pctEl)  pctEl.textContent  = pct + "%";
-        if (fillEl) fillEl.style.width = pct + "%";
+    if (!locked) {
+      const preds = await model.predict(webcam.canvas);
+      preds.forEach(p => {
+        buffer[p.className] = (buffer[p.className] || 0) + p.probability;
       });
+      bufferCount++;
 
-      buffer = {}; bufferCount = 0;
-      startCountdown();
+      // Progress bar
+      const elapsed = Date.now() - analysisStart;
+      const pct = Math.min(100, (elapsed / ANALYSIS_MS) * 100);
+      progressFill.style.width = pct + "%";
+
+      if (elapsed >= ANALYSIS_MS && bufferCount > 0) {
+        lockResult();
+      }
     }
 
-    rafId = window.requestAnimationFrame(loop);
+    rafId = requestAnimationFrame(loop);
   }
 
-  function startCountdown() {
-    if (countdownTimer) clearInterval(countdownTimer);
-    let rem = Math.round(INTERVAL_MS / 1000);
-    statusEl.textContent = `🔄 ${rem} sn sonra güncelleniyor…`;
-    countdownTimer = setInterval(() => {
-      rem--;
-      if (rem > 0) { statusEl.textContent = `🔄 ${rem} sn sonra güncelleniyor…`; }
-      else { statusEl.textContent = "⏳ Analiz ediliyor…"; clearInterval(countdownTimer); }
-    }, 1000);
+  function lockResult() {
+    locked = true;
+    scanLine.style.display    = "none";
+    progressBar.style.display = "none";
+    newBtn.style.display      = "block";
+
+    const averaged = Object.entries(buffer).map(([className, total]) => ({
+      className, probability: total / bufferCount
+    }));
+    averaged.sort((a, b) => b.probability - a.probability);
+
+    const best = averaged[0];
+    topLabelEl.textContent = best.className;
+    topConfEl.textContent  = Math.round(best.probability * 100);
+    topCard.classList.add("locked");
+
+    averaged.forEach(p => {
+      const pct  = Math.round(p.probability * 100);
+      const key  = sanitize(p.className);
+      const pe   = document.getElementById("pct-"  + key);
+      const fe   = document.getElementById("fill-" + key);
+      if (pe) pe.textContent = pct + "%";
+      if (fe) fe.style.width = pct + "%";
+    });
+
+    statusEl.textContent = "✅ Sonuç hazır — yeni numune için butona bas";
   }
-
-
 
   function sanitize(str) {
     return str.replace(/[^a-zA-Z0-9_\-]/g, "_");
   }
 
-  // set initial status
   statusEl.textContent = "Hazır — butona bas";
 </script>
 </body>
