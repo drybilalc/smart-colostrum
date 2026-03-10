@@ -306,9 +306,9 @@
       model = await tmImage.load(modelURL, metaURL);
 
       statusEl.textContent = "Kamera açılıyor…";
-      const flip = true;
+      const flip = false;
       webcam = new tmImage.Webcam(400, 300, flip);
-      await webcam.setup();
+      await webcam.setup({ facingMode: "environment" });
       await webcam.play();
 
       // mount canvas
