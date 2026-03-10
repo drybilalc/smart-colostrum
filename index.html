@@ -1,25 +1,384 @@
 <!DOCTYPE html>
-
 <html lang="tr">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SMART COLOSTRUM CANLI</title>
-<style>
-body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f9; padding: 20px; }
-h1 { color: #333; }
-#webcam-container { margin: 20px auto; border: 5px solid #ddd; border-radius: 10px; display: inline-block; overflow: hidden; background-color: #000; min-width: 300px; min-height: 300px;}
-#label-container { font-size: 26px; font-weight: bold; margin-top: 20px; color: #d9534f; }
-button { padding: 15px 30px; font-size: 18px; background-color: #5cb85c; color: white; border: none; border-radius: 5px; cursor: pointer; }
-button:hover { background-color: #4cae4c; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>SMART COLOSTRUM 🥛</title>
+
+  <!-- TensorFlow.js + Teachable Machine -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cream: #fdf6ec;
+      --gold:  #e8a945;
+      --amber: #c97d1e;
+      --navy:  #0f1f38;
+      --teal:  #1a5276;
+      --white: #ffffff;
+      --glass: rgba(255,255,255,0.07);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--navy);
+      color: var(--white);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+
+    /* ── background decoration ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(232,169,69,.18) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 90% 80%,  rgba(26,82,118,.35) 0%,  transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative; z-index: 1;
+      width: 100%; max-width: 480px;
+      padding: 24px 16px 40px;
+      display: flex; flex-direction: column; align-items: center; gap: 20px;
+    }
+
+    /* ── header ── */
+    header { text-align: center; }
+    header .badge {
+      display: inline-block;
+      background: rgba(232,169,69,.15);
+      border: 1px solid rgba(232,169,69,.4);
+      color: var(--gold);
+      font-size: 11px; font-weight: 500; letter-spacing: .12em;
+      text-transform: uppercase;
+      padding: 4px 14px; border-radius: 999px;
+      margin-bottom: 10px;
+    }
+    header h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(1.6rem, 6vw, 2.2rem);
+      font-weight: 800;
+      letter-spacing: -.02em;
+      line-height: 1.1;
+    }
+    header h1 span { color: var(--gold); }
+    header p {
+      margin-top: 8px;
+      font-size: 14px; color: rgba(255,255,255,.55);
+      line-height: 1.5;
+    }
+
+    /* ── camera card ── */
+    .cam-card {
+      width: 100%;
+      background: var(--glass);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: var(--radius);
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+      position: relative;
+    }
+
+    #webcam-container {
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #07111f;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+
+    #webcam-container canvas {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* corner brackets */
+    #webcam-container::before,
+    #webcam-container::after,
+    .cam-br::before,
+    .cam-br::after {
+      content: '';
+      position: absolute;
+      width: 28px; height: 28px;
+      border-color: var(--gold);
+      border-style: solid;
+      opacity: .7;
+    }
+    #webcam-container::before { top:12px; left:12px; border-width: 2px 0 0 2px; }
+    #webcam-container::after  { top:12px; right:12px; border-width: 2px 2px 0 0; }
+    .cam-br::before { bottom:12px; left:12px; border-width: 0 0 2px 2px; }
+    .cam-br::after  { bottom:12px; right:12px; border-width: 0 2px 2px 0; }
+
+    /* scanning line animation */
+    .scan-line {
+      position: absolute; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      animation: scan 2.4s ease-in-out infinite;
+      pointer-events: none;
+      display: none;
+    }
+    @keyframes scan {
+      0%   { top: 10%; opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: 90%; opacity: 0; }
+    }
+
+    .placeholder-msg {
+      color: rgba(255,255,255,.3);
+      font-size: 13px; text-align: center; padding: 20px;
+    }
+    .placeholder-msg .icon { font-size: 2.5rem; display: block; margin-bottom: 8px; }
+
+    /* ── start button ── */
+    #startBtn {
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, var(--gold), var(--amber));
+      color: var(--navy);
+      border: none; border-radius: var(--radius);
+      font-family: 'Syne', sans-serif;
+      font-size: 16px; font-weight: 700;
+      letter-spacing: .03em;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 4px 24px rgba(232,169,69,.3);
+    }
+    #startBtn:active { transform: scale(.97); }
+    #startBtn:hover  { box-shadow: 0 6px 32px rgba(232,169,69,.5); }
+    #startBtn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    /* ── result panel ── */
+    #results {
+      width: 100%;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .result-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: .14em; text-transform: uppercase;
+      color: rgba(255,255,255,.4);
+      padding-left: 4px;
+    }
+
+    .top-prediction {
+      background: rgba(232,169,69,.10);
+      border: 1px solid rgba(232,169,69,.35);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .top-label {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(1.1rem, 4vw, 1.4rem);
+      font-weight: 800;
+      color: var(--gold);
+    }
+    .top-conf {
+      font-size: 28px; font-weight: 300;
+      color: var(--white);
+    }
+    .top-conf span { font-size: 16px; color: rgba(255,255,255,.5); }
+
+    .bars { display: flex; flex-direction: column; gap: 8px; }
+
+    .bar-row {
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 12px;
+      padding: 10px 14px;
+    }
+    .bar-meta {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px;
+    }
+    .bar-label { font-size: 13px; color: rgba(255,255,255,.8); }
+    .bar-pct   { font-size: 13px; font-weight: 500; color: var(--gold); }
+
+    .bar-track {
+      height: 6px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, var(--teal), var(--gold));
+      transition: width .2s ease;
+    }
+
+    /* ── status ── */
+    #status {
+      font-size: 13px; color: rgba(255,255,255,.4);
+      text-align: center;
+    }
+
+    /* ── footer ── */
+    footer {
+      margin-top: 8px;
+      font-size: 11px; color: rgba(255,255,255,.2);
+      text-align: center; letter-spacing: .06em;
+    }
+  </style>
 </head>
 <body>
-<h1>🥛 SMART COLOSTRUM CANLI ANALİZ</h1>
-<p>Kamerayı başlatın ve kolostrum tüpünü ekranda tutun.</p>
-<button type="button" onclick="init()">Kamerayı Başlat</button>
-<div id="webcam-container"></div>
-<div id="label-container">Kamera açıldığında sonuçlar burada akacak...</div>
+<div class="container">
 
+  <header>
+    <div class="badge">AI · Real-Time Analysis</div>
+    <h1>SMART<br><span>COLOSTRUM</span> 🥛</h1>
+    <p>Kamerayı kolostrum tüpüne tutun.<br>Yapay zeka anında kalite tahmini yapar.</p>
+  </header>
+
+  <!-- Camera -->
+  <div class="cam-card">
+    <div id="webcam-container">
+      <div class="cam-br"></div>
+      <div class="scan-line" id="scanLine"></div>
+      <div class="placeholder-msg" id="placeholder">
+        <span class="icon">📷</span>
+        Kamerayı başlatmak için<br>aşağıdaki butona basın
+      </div>
+    </div>
+  </div>
+
+  <button id="startBtn" onclick="init()">🎥 Kamerayı Başlat</button>
+
+  <!-- Results -->
+  <div id="results">
+    <div class="result-title">Canlı Tahmin</div>
+
+    <div class="top-prediction">
+      <div class="top-label" id="topLabel">—</div>
+      <div class="top-conf"><span id="topConf">0</span><span>%</span></div>
+    </div>
+
+    <div class="bars" id="barsContainer"></div>
+  </div>
+
+  <div id="status">Model yükleniyor…</div>
+
+  <footer>SMART COLOSTRUM · Edge AI Demo</footer>
+</div>
+
+<script>
+  // ════════════════════════════════════════════════
+  //  ⚠️  KENDİ MODEL URL'İNİ BURAYA YAPIŞT IR  ⚠️
+  //  Teachable Machine > Export > TensorFlow.js >
+  //  "Upload my model" > linki kopyala
+  // ════════════════════════════════════════════════
+  const MODEL_URL = "https://teachablemachine.withgoogle.com/models/S4apDiyjp/";
+  // ════════════════════════════════════════════════
+
+  let model, webcam, rafId;
+  const statusEl       = document.getElementById("status");
+  const resultsEl      = document.getElementById("results");
+  const barsContainer  = document.getElementById("barsContainer");
+  const topLabelEl     = document.getElementById("topLabel");
+  const topConfEl      = document.getElementById("topConf");
+  const scanLine       = document.getElementById("scanLine");
+  const placeholder    = document.getElementById("placeholder");
+  const startBtn       = document.getElementById("startBtn");
+
+  async function init() {
+    startBtn.disabled = true;
+    startBtn.textContent = "⏳ Yükleniyor…";
+    statusEl.textContent = "Model indiriliyor…";
+
+    try {
+      const modelURL   = MODEL_URL + "model.json";
+      const metaURL    = MODEL_URL + "metadata.json";
+      model = await tmImage.load(modelURL, metaURL);
+
+      statusEl.textContent = "Kamera açılıyor…";
+      const flip = true;
+      webcam = new tmImage.Webcam(400, 300, flip);
+      await webcam.setup();
+      await webcam.play();
+
+      // mount canvas
+      placeholder.style.display = "none";
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+      scanLine.style.display = "block";
+
+      // build bar rows
+      const labels = model.getClassLabels();
+      barsContainer.innerHTML = "";
+      labels.forEach(label => {
+        const row = document.createElement("div");
+        row.className = "bar-row";
+        row.innerHTML = `
+          <div class="bar-meta">
+            <span class="bar-label">${label}</span>
+            <span class="bar-pct" id="pct-${sanitize(label)}">0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" id="fill-${sanitize(label)}" style="width:0%"></div>
+          </div>`;
+        barsContainer.appendChild(row);
+      });
+
+      resultsEl.style.display = "flex";
+      startBtn.style.display  = "none";
+      statusEl.textContent    = "🟢 Canlı analiz aktif";
+
+      loop();
+
+    } catch(err) {
+      statusEl.textContent = "❌ Hata: " + err.message;
+      startBtn.disabled = false;
+      startBtn.textContent = "🎥 Tekrar Dene";
+      console.error(err);
+    }
+  }
+
+  async function loop() {
+    webcam.update();
+    await predict();
+    rafId = window.requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    const preds = await model.predict(webcam.canvas);
+
+    // sort descending
+    preds.sort((a,b) => b.probability - a.probability);
+
+    const best = preds[0];
+    topLabelEl.textContent = best.className;
+    topConfEl.textContent  = Math.round(best.probability * 100);
+
+    preds.forEach(p => {
+      const pct  = Math.round(p.probability * 100);
+      const key  = sanitize(p.className);
+      const pctEl  = document.getElementById("pct-"  + key);
+      const fillEl = document.getElementById("fill-" + key);
+      if (pctEl)  pctEl.textContent  = pct + "%";
+      if (fillEl) fillEl.style.width = pct + "%";
+    });
+  }
+
+  function sanitize(str) {
+    return str.replace(/[^a-zA-Z0-9_\-]/g, "_");
+  }
+
+  // set initial status
+  statusEl.textContent = "Hazır — butona bas";
+</script>
 </body>
 </html>
