@@ -1,0 +1,6 @@
+0 Düşük-13 ve Altı
+1 Düşük - 14 ve 17
+2 Düşük - 18 ve 21
+3 Yüksek - 22 ve 25
+4 Yüksek - 26 ve 29
+5 Yüksek - 30 ve Üzeri
